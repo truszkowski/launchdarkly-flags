@@ -239,7 +239,7 @@ func main() {
 	flag.StringVar(&env, "env", "production", "environment to check")
 	flag.StringVar(&key, "key", "REVIEW_FEATURE_FLAG_APIKEY", "env-var name with api key to authorize")
 	flag.DurationVar(&threshold, "threshold", 6*30*24*time.Hour, "threshold for last modified and last requested (half-year by default)")
-	flag.StringVar(&format, "format", "text", "output format: text/markdown")
+	flag.StringVar(&format, "format", "text", "output format: text/markdown/csv")
 	flag.Parse()
 
 	client := Client{
@@ -292,6 +292,17 @@ func main() {
 			}
 			link := host + "/" + project + "/" + env + "/features/" + item.Key
 			fmt.Printf("%s | %s | %s | %s | %s | %s | %s\n", item.Key, item.MaintainerEmail, item.CreationDateAgo(), item.LastModifiedAgo(), item.LastRequestedAgo(), status, link)
+		}
+	case "csv":
+		fmt.Println("KEY,MAINTAINER,CREATION DATE,LAST MODIFIED,LAST REQUESTED,STATUS,LINK")
+
+		for _, item := range flags {
+			status := "inuse"
+			if item.LastRequestedMoreThan(threshold) {
+				status = "inactive"
+			}
+			link := host + "/" + project + "/" + env + "/features/" + item.Key
+			fmt.Printf("%s,%s,%s,%s,%s,%s,%s\n", item.Key, item.MaintainerEmail, item.CreationDateAgo(), item.LastModifiedAgo(), item.LastRequestedAgo(), status, link)
 		}
 	default:
 		tb := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
