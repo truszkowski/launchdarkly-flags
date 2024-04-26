@@ -208,15 +208,20 @@ func (cli *Client) GetFlags(ctx context.Context, project, env string) ([]Flag, e
 			return nil, err
 		}
 
-		LastRequested := postResponse.LastRequested(env)
+		lastRequested := postResponse.LastRequested(env)
 
 		for _, item := range getResponse.Items {
+			maintainerEmail := item.Maintainer.Email
+			if maintainerEmail == "" {
+				maintainerEmail = "unknown"
+			}
+
 			flags = append(flags, Flag{
 				Key:             item.Key,
-				MaintainerEmail: item.Maintainer.Email,
+				MaintainerEmail: maintainerEmail,
 				CreationDate:    time.Unix(item.CreationDate/1000, item.CreationDate%1000*1000000),
 				LastModified:    time.Unix(item.Environments[env].LastModified/1000, item.Environments[env].LastModified%1000*1000000),
-				LastRequested:   LastRequested[item.Key],
+				LastRequested:   lastRequested[item.Key],
 			})
 		}
 	}
@@ -250,6 +255,10 @@ func main() {
 	tb := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
 	fmt.Fprintln(tb, "KEY\tMAINTAINER\tCREATION DATE\tLAST MODIFIED\tLAST REQUESTED\tSTATUS")
 
+	inactive := map[string][]string{}
+	inuse := map[string][]string{}
+	byFlag := map[string]Flag{}
+
 	for _, item := range flags {
 		if !item.CreationDateMoreThan(threshold) {
 			continue
@@ -262,10 +271,33 @@ func main() {
 
 		if item.LastRequestedMoreThan(threshold) {
 			fmt.Fprintln(tb, "inactive")
+			inactive[item.MaintainerEmail] = append(inactive[item.MaintainerEmail], item.Key)
 		} else {
 			fmt.Fprintln(tb, "inuse")
+			inuse[item.MaintainerEmail] = append(inuse[item.MaintainerEmail], item.Key)
 		}
+		byFlag[item.Key] = item
 	}
 
 	tb.Flush()
+
+	fmt.Println("\nINACTIVE FLAGS:")
+	for maintainer, keys := range inactive {
+		fmt.Printf(" - %s\n", maintainer)
+		for _, key := range keys {
+			flag := byFlag[key]
+			link := host + "/" + project + "/" + env + "/features/" + key
+			fmt.Printf("   %s (created: %s, modified: %s, requested: %s, link: %s)\n", key, flag.CreationDateAgo(), flag.LastModifiedAgo(), flag.LastRequestedAgo(), link)
+		}
+	}
+
+	fmt.Println("\nINUSE FLAGS")
+	for maintainer, keys := range inuse {
+		fmt.Printf(" - %s\n", maintainer)
+		for _, key := range keys {
+			flag := byFlag[key]
+			link := host + "/" + project + "/" + env + "/features/" + key
+			fmt.Printf("   %s (created: %s, modified: %s, requested: %s, link: %s)\n", key, flag.CreationDateAgo(), flag.LastModifiedAgo(), flag.LastRequestedAgo(), link)
+		}
+	}
 }
