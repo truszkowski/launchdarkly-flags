@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"text/tabwriter"
 	"time"
 )
@@ -232,11 +233,13 @@ func (cli *Client) GetFlags(ctx context.Context, project, env string) ([]Flag, e
 func main() {
 	var project, env, key string
 	var threshold time.Duration
+	var format string
 
 	flag.StringVar(&project, "project", "default", "project to check")
 	flag.StringVar(&env, "env", "production", "environment to check")
 	flag.StringVar(&key, "key", "REVIEW_FEATURE_FLAG_APIKEY", "env-var name with api key to authorize")
 	flag.DurationVar(&threshold, "threshold", 6*30*24*time.Hour, "threshold for last modified and last requested (half-year by default)")
+	flag.StringVar(&format, "format", "text", "output format: text/markdown")
 	flag.Parse()
 
 	client := Client{
@@ -252,13 +255,7 @@ func main() {
 		panic(fmt.Errorf("failed to get flags: %w", err))
 	}
 
-	tb := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
-	fmt.Fprintln(tb, "KEY\tMAINTAINER\tCREATION DATE\tLAST MODIFIED\tLAST REQUESTED\tSTATUS")
-
-	inactive := map[string][]string{}
-	inuse := map[string][]string{}
-	byFlag := map[string]Flag{}
-
+	filtered := []Flag{}
 	for _, item := range flags {
 		if !item.CreationDateMoreThan(threshold) {
 			continue
@@ -266,38 +263,49 @@ func main() {
 		if !item.LastModifiedMoreThan(threshold) {
 			continue
 		}
-
-		fmt.Fprintf(tb, "%s\t%s\t%s\t%s\t%s\t", item.Key, item.MaintainerEmail, item.CreationDateAgo(), item.LastModifiedAgo(), item.LastRequestedAgo())
-
-		if item.LastRequestedMoreThan(threshold) {
-			fmt.Fprintln(tb, "inactive")
-			inactive[item.MaintainerEmail] = append(inactive[item.MaintainerEmail], item.Key)
-		} else {
-			fmt.Fprintln(tb, "inuse")
-			inuse[item.MaintainerEmail] = append(inuse[item.MaintainerEmail], item.Key)
-		}
-		byFlag[item.Key] = item
+		filtered = append(filtered, item)
 	}
+	flags = filtered
 
-	tb.Flush()
-
-	fmt.Println("\nINACTIVE FLAGS:")
-	for maintainer, keys := range inactive {
-		fmt.Printf(" - %s\n", maintainer)
-		for _, key := range keys {
-			flag := byFlag[key]
-			link := host + "/" + project + "/" + env + "/features/" + key
-			fmt.Printf("   %s (created: %s, modified: %s, requested: %s, link: %s)\n", key, flag.CreationDateAgo(), flag.LastModifiedAgo(), flag.LastRequestedAgo(), link)
+	sort.Slice(flags, func(i, j int) bool {
+		if flags[i].MaintainerEmail != flags[j].MaintainerEmail {
+			return flags[i].MaintainerEmail < flags[j].MaintainerEmail
 		}
-	}
 
-	fmt.Println("\nINUSE FLAGS")
-	for maintainer, keys := range inuse {
-		fmt.Printf(" - %s\n", maintainer)
-		for _, key := range keys {
-			flag := byFlag[key]
-			link := host + "/" + project + "/" + env + "/features/" + key
-			fmt.Printf("   %s (created: %s, modified: %s, requested: %s, link: %s)\n", key, flag.CreationDateAgo(), flag.LastModifiedAgo(), flag.LastRequestedAgo(), link)
+		inactivei := flags[i].LastRequestedMoreThan(threshold)
+		inactivej := flags[j].LastRequestedMoreThan(threshold)
+		if inactivei != inactivej {
+			return inactivei
 		}
+
+		return flags[i].CreationDate.Unix() < flags[j].CreationDate.Unix()
+	})
+
+	switch format {
+	case "markdown":
+		fmt.Printf("KEY | MAINTAINER | CREATION DATE | LAST MODIFIED | LAST REQUESTED | STATUS | LINK \n")
+		fmt.Printf("----+------ -----+---------------+---------------+----------------+--------+------\n")
+		for _, item := range flags {
+			status := "inuse"
+			if item.LastRequestedMoreThan(threshold) {
+				status = "inactive"
+			}
+			link := host + "/" + project + "/" + env + "/features/" + item.Key
+			fmt.Printf("%s | %s | %s | %s | %s | %s | %s\n", item.Key, item.MaintainerEmail, item.CreationDateAgo(), item.LastModifiedAgo(), item.LastRequestedAgo(), status, link)
+		}
+	default:
+		tb := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
+		fmt.Fprintln(tb, "KEY\tMAINTAINER\tCREATION DATE\tLAST MODIFIED\tLAST REQUESTED\tSTATUS\tLINK")
+
+		for _, item := range flags {
+			status := "inuse"
+			if item.LastRequestedMoreThan(threshold) {
+				status = "inactive"
+			}
+			link := host + "/" + project + "/" + env + "/features/" + item.Key
+			fmt.Fprintf(tb, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.Key, item.MaintainerEmail, item.CreationDateAgo(), item.LastModifiedAgo(), item.LastRequestedAgo(), status, link)
+		}
+
+		tb.Flush()
 	}
 }
