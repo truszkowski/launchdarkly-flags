@@ -231,20 +231,20 @@ func (cli *Client) GetFlags(ctx context.Context, project, env string) ([]Flag, e
 }
 
 func main() {
-	var project, env, key string
+	var project, env, token string
 	var threshold time.Duration
 	var format string
 
 	flag.StringVar(&project, "project", "default", "project to check")
 	flag.StringVar(&env, "env", "production", "environment to check")
-	flag.StringVar(&key, "key", "REVIEW_FEATURE_FLAG_APIKEY", "env-var name with api key to authorize")
+	flag.StringVar(&token, "token", "LAUNCH_DARKLY_API_TOKEN", "env-var name with api token to authorize")
 	flag.DurationVar(&threshold, "threshold", 6*30*24*time.Hour, "threshold for last modified and last requested (half-year by default)")
 	flag.StringVar(&format, "format", "text", "output format: text/markdown/csv")
 	flag.Parse()
 
 	client := Client{
 		Client: http.Client{Timeout: time.Minute},
-		ApiKey: os.Getenv(key),
+		ApiKey: os.Getenv(token),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
