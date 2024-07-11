@@ -19,6 +19,7 @@ type Flag struct {
 	CreationDate    time.Time
 	LastModified    time.Time
 	LastRequested   time.Time
+	Temporary       bool
 }
 
 func (f Flag) CreationDateMoreThan(value time.Duration) bool {
@@ -69,6 +70,20 @@ func (f Flag) ago(ago time.Duration) string {
 	default:
 		return fmt.Sprintf("%.0f seconds ago", float64(ago)/float64(time.Second))
 	}
+}
+
+func (f Flag) GetStatus(threshold time.Duration) string {
+	if f.LastRequestedMoreThan(threshold) {
+		return "inactive"
+	}
+	return "inuse"
+}
+
+func (f Flag) GetTemporary() string {
+	if f.Temporary {
+		return "temporary"
+	}
+	return "permanent"
 }
 
 type Client struct {
@@ -154,6 +169,7 @@ type GetResponse struct {
 		Maintainer struct {
 			Email string `json:"email"`
 		} `json:"_maintainer"`
+		Temporary    bool  `json:"temporary"`
 		CreationDate int64 `json:"creationDate"`
 		Environments map[string]struct {
 			LastModified int64 `json:"lastModified"`
@@ -223,6 +239,7 @@ func (cli *Client) GetFlags(ctx context.Context, project, env string) ([]Flag, e
 				CreationDate:    time.Unix(item.CreationDate/1000, item.CreationDate%1000*1000000),
 				LastModified:    time.Unix(item.Environments[env].LastModified/1000, item.Environments[env].LastModified%1000*1000000),
 				LastRequested:   lastRequested[item.Key],
+				Temporary:       item.Temporary,
 			})
 		}
 	}
@@ -281,40 +298,38 @@ func main() {
 		return flags[i].CreationDate.Unix() < flags[j].CreationDate.Unix()
 	})
 
+	args := func(f Flag) []interface{} {
+		return []interface{}{
+			f.Key,
+			f.MaintainerEmail,
+			f.CreationDateAgo(),
+			f.LastModifiedAgo(),
+			f.LastRequestedAgo(),
+			f.GetStatus(threshold),
+			f.GetTemporary(),
+			host + "/" + project + "/" + env + "/features/" + f.Key,
+		}
+	}
+
 	switch format {
 	case "markdown":
-		fmt.Printf("KEY | MAINTAINER | CREATION DATE | LAST MODIFIED | LAST REQUESTED | STATUS | LINK \n")
-		fmt.Printf("----+------ -----+---------------+---------------+----------------+--------+------\n")
+		fmt.Printf("KEY | MAINTAINER | CREATION DATE | LAST MODIFIED | LAST REQUESTED | STATUS | TEMPORARY | LINK \n")
+		fmt.Printf("----+------------+---------------+---------------+----------------+--------+-----------+------\n")
 		for _, item := range flags {
-			status := "inuse"
-			if item.LastRequestedMoreThan(threshold) {
-				status = "inactive"
-			}
-			link := host + "/" + project + "/" + env + "/features/" + item.Key
-			fmt.Printf("%s | %s | %s | %s | %s | %s | %s\n", item.Key, item.MaintainerEmail, item.CreationDateAgo(), item.LastModifiedAgo(), item.LastRequestedAgo(), status, link)
+			fmt.Printf("%s | %s | %s | %s | %s | %s | %s | %s\n", args(item)...)
 		}
 	case "csv":
-		fmt.Println("KEY,MAINTAINER,CREATION DATE,LAST MODIFIED,LAST REQUESTED,STATUS,LINK")
+		fmt.Println("KEY,MAINTAINER,CREATION DATE,LAST MODIFIED,LAST REQUESTED,STATUS,TEMPORARY,LINK")
 
 		for _, item := range flags {
-			status := "inuse"
-			if item.LastRequestedMoreThan(threshold) {
-				status = "inactive"
-			}
-			link := host + "/" + project + "/" + env + "/features/" + item.Key
-			fmt.Printf("%s,%s,%s,%s,%s,%s,%s\n", item.Key, item.MaintainerEmail, item.CreationDateAgo(), item.LastModifiedAgo(), item.LastRequestedAgo(), status, link)
+			fmt.Printf("%s,%s,%s,%s,%s,%s,%s,%s\n", args(item)...)
 		}
 	default:
 		tb := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
-		fmt.Fprintln(tb, "KEY\tMAINTAINER\tCREATION DATE\tLAST MODIFIED\tLAST REQUESTED\tSTATUS\tLINK")
+		fmt.Fprintln(tb, "KEY\tMAINTAINER\tCREATION DATE\tLAST MODIFIED\tLAST REQUESTED\tSTATUS\tTEMPORARY\tLINK")
 
 		for _, item := range flags {
-			status := "inuse"
-			if item.LastRequestedMoreThan(threshold) {
-				status = "inactive"
-			}
-			link := host + "/" + project + "/" + env + "/features/" + item.Key
-			fmt.Fprintf(tb, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.Key, item.MaintainerEmail, item.CreationDateAgo(), item.LastModifiedAgo(), item.LastRequestedAgo(), status, link)
+			fmt.Fprintf(tb, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", args(item)...)
 		}
 
 		tb.Flush()
