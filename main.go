@@ -251,12 +251,14 @@ func main() {
 	var project, env, token string
 	var threshold time.Duration
 	var format string
+	var withPermanent bool
 
 	flag.StringVar(&project, "project", "default", "project to check")
 	flag.StringVar(&env, "env", "production", "environment to check")
 	flag.StringVar(&token, "token", "LAUNCH_DARKLY_API_TOKEN", "env-var name with api token to authorize")
 	flag.DurationVar(&threshold, "threshold", 6*30*24*time.Hour, "threshold for last modified and last requested (half-year by default)")
 	flag.StringVar(&format, "format", "text", "output format: text/markdown/csv")
+	flag.BoolVar(&withPermanent, "with-permanent", false, "show permanent flags as well")
 	flag.Parse()
 
 	client := Client{
@@ -278,6 +280,9 @@ func main() {
 			continue
 		}
 		if !item.LastModifiedMoreThan(threshold) {
+			continue
+		}
+		if !item.Temporary && !withPermanent {
 			continue
 		}
 		filtered = append(filtered, item)
